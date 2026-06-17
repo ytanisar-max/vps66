@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Server Panel</title>
+    <style>
+        :root {
+            --bg-color: #0d0d12;
+            --panel-bg: #15151e;
+            --neon-blue: #00f3ff;
+            --text-color: #e0e0e0;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            gap: 20px;
+        }
+        h1, h2, h3 { color: var(--neon-blue); margin-top: 0; }
+        .sidebar { width: 300px; background: var(--panel-bg); padding: 20px; border-radius: 10px; border: 1px solid var(--neon-blue); box-shadow: 0 0 10px rgba(0, 243, 255, 0.2); }
+        .main-content { flex-grow: 1; display: flex; flex-direction: column; gap: 20px; }
+        .card { background: var(--panel-bg); padding: 20px; border-radius: 10px; border: 1px solid rgba(0, 243, 255, 0.3); }
+        
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; color: var(--neon-blue); font-size: 14px; }
+        select, input[type="text"] { width: 100%; padding: 10px; background: #000; border: 1px solid var(--neon-blue); color: #fff; border-radius: 5px; outline: none; }
+        
+        .btn { padding: 10px 15px; font-weight: bold; cursor: pointer; border: none; border-radius: 5px; width: 100%; margin-bottom: 10px; transition: 0.3s; text-transform: uppercase; }
+        .btn-start { background: var(--neon-blue); color: #000; box-shadow: 0 0 10px var(--neon-blue); }
+        .btn-start:hover { box-shadow: 0 0 20px var(--neon-blue); }
+        .btn-stop { background: #ff003c; color: #fff; box-shadow: 0 0 10px #ff003c; }
+        .btn-stop:hover { box-shadow: 0 0 20px #ff003c; }
+        
+        /* Console Styles */
+        .console-container { display: flex; flex-direction: column; height: 400px; }
+        .console-output { flex-grow: 1; background: #000; color: #00f3ff; padding: 15px; overflow-y: auto; font-family: monospace; border-radius: 5px 5px 0 0; border: 1px solid var(--neon-blue); border-bottom: none; }
+        .console-input { display: flex; }
+        .console-input input { flex-grow: 1; border-radius: 0 0 0 5px; border-right: none; }
+        .console-input button { width: auto; margin: 0; border-radius: 0 0 5px 0; background: var(--neon-blue); color: #000; font-weight: bold; cursor: pointer; border: 1px solid var(--neon-blue); padding: 0 20px; }
+        
+        /* File Manager Styles */
+        .file-list { list-style: none; padding: 0; margin: 0; max-height: 200px; overflow-y: auto; }
+        .file-list li { padding: 10px; border-bottom: 1px solid rgba(0, 243, 255, 0.2); display: flex; justify-content: space-between; cursor: pointer; }
+        .file-list li:hover { background: rgba(0, 243, 255, 0.1); }
+        #editor { width: 100%; height: 200px; background: #000; color: #fff; border: 1px solid var(--neon-blue); padding: 10px; font-family: monospace; display: none; margin-top: 10px; }
+    </style>
+</head>
+<body>
+
+    <!-- Sidebar: Configuration & Controls -->
+    <div class="sidebar">
+        <h2>Control Panel</h2>
+        
+        <div class="form-group">
+            <label>Startup Language</label>
+            <select id="lang">
+                <option value="node">Node.js</option>
+                <option value="python">Python 3</option>
+                <option value="java">Java (Minecraft/Etc)</option>
+            </select>
+        </div>
+
+        <div class="form-group">
+            <label>Main File (e.g. index.js, server.jar)</label>
+            <input type="text" id="main-file" value="index.js">
+        </div>
+
+        <div class="form-group">
+            <label>Max RAM (Java only)</label>
+            <input type="text" id="ram" value="4G" placeholder="e.g. 2G, 4G">
+        </div>
+
+        <button class="btn btn-start" onclick="startServer()">▶ Start Server</button>
+        <button class="btn btn-stop" onclick="stopServer()">■ Stop Server</button>
+
+        <div style="margin-top: 30px;">
+            <h3>Server Network</h3>
+            <p style="font-size: 12px; color: #aaa;">Railway TCP Address:</p>
+            <input type="text" value="tcp.railway.app:XXXXX" readonly style="color: var(--neon-blue); text-align: center;">
+        </div>
+    </div>
+
+    <!-- Main Content: Console & Files -->
+    <div class="main-content">
+        
+        <!-- Live Console -->
+        <div class="card console-container">
+            <h3>Live Terminal</h3>
+            <div class="console-output" id="terminal">System initialized. Waiting for commands...<br></div>
+            <div class="console-input">
+                <input type="text" id="cmd-input" placeholder="Type a command (e.g. op username, help, stop) and press Enter...">
+                <button onclick="sendCommand()">Send</button>
+            </div>
+        </div>
+
+        <!-- File Manager -->
+        <div class="card">
+            <h3>File Manager (/server-files) <button onclick="loadFiles()" style="float:right; background:none; color:var(--neon-blue); border:none; cursor:pointer;">↻ Refresh</button></h3>
+            <ul class="file-list" id="file-list">
+                <li>Loading files...</li>
+            </ul>
+            
+            <textarea id="editor"></textarea>
+            <button id="save-btn" class="btn btn-start" style="display: none; margin-top: 10px; width: 150px;" onclick="saveFile()">Save File</button>
+        </div>
+
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const terminal = document.getElementById('terminal');
+        const cmdInput = document.getElementById('cmd-input');
+        let currentEditingFile = "";
+
+        // --- Console Logic ---
+        socket.on('log', (data) => {
+            terminal.innerHTML += data.replace(/\n/g, '<br>');
+            terminal.scrollTop = terminal.scrollHeight;
+        });
+
+        function startServer() {
+            const config = {
+                language: document.getElementById('lang').value,
+                file: document.getElementById('main-file').value,
+                ram: document.getElementById('ram').value
+            };
+            socket.emit('start-server', config);
+        }
+
+        function stopServer() { socket.emit('stop-server'); }
+
+        function sendCommand() {
+            const cmd = cmdInput.value.trim();
+            if (cmd) {
+                socket.emit('send-command', cmd);
+                cmdInput.value = '';
+            }
+        }
+
+        cmdInput.addEventListener("keypress", function(event) {
+            if (event.key === "Enter") sendCommand();
+        });
+
+        // --- File Manager Logic ---
+        async function loadFiles() {
+            const res = await fetch('/api/files');
+            const files = await res.json();
+            const list = document.getElementById('file-list');
+            list.innerHTML = '';
+            files.forEach(file => {
+                list.innerHTML += `<li onclick="openFile('${file}')">📄 ${file}</li>`;
+            });
+        }
+
+        async function openFile(filename) {
+            const res = await fetch('/api/file/read', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename })
+            });
+            const data = await res.json();
+            
+            if (data.content !== undefined) {
+                currentEditingFile = filename;
+                document.getElementById('editor').style.display = 'block';
+                document.getElementById('save-btn').style.display = 'block';
+                document.getElementById('editor').value = data.content;
+            } else {
+                alert("Cannot read file. It might be a folder or binary file.");
+            }
+        }
+
+        async function saveFile() {
+            const content = document.getElementById('editor').value;
+            await fetch('/api/file/write', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ filename: currentEditingFile, content })
+            });
+            alert('File saved successfully!');
+        }
+
+        // Initialize file list on load
+        loadFiles();
+    </script>
+</body>
+</html>
+
